@@ -16,7 +16,7 @@
     },
     "self_cognition": {
         "file_name": "self_cognition.json",
-        "file_sha1": "81312c57726853ae7d3489bd7d1263f3260acbad"
+        "file_sha1": "b3cad5688468b7bdc31871986689010d02d8e758"
     },
     "belle_0.5m": {
         "hf_hub_url": "BelleGroup/train_0.5M_CN"
@@ -110,5 +110,9 @@
     "constella_labs_en": {
         "file_name": "constella_labs_en.json",
         "file_sha1": "14c2ee985973c928b4f8fc4268789e0e1f918118"
+    },
+    "elon_chat_en": {
+        "file_name": "elon_chat.json",
+        "file_sha1": "8a14bbf5b663356301c4bf66852967a7ffac1c82"
     }
 }

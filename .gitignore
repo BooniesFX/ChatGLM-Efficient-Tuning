@@ -1,5 +1,6 @@
-
 Elon Musk chat finetune/data.json
 *.bin
 offload/
 *.pyc
+cognition/
+output/
