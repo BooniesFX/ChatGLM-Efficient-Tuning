@@ -1,6 +1,7 @@
 {
   "_name_or_path": "THUDM/chatglm-6b",
   "architectures": [
+    "ChatGLMModel"
   ],
   "auto_map": {
     "AutoConfig": "configuration_chatglm.ChatGLMConfig",
