@@ -106,5 +106,9 @@
             "response": "output",
             "history": "history"
         }
+    },
+    "constella_labs_en": {
+        "file_name": "constella_labs_en.json",
+        "file_sha1": "14c2ee985973c928b4f8fc4268789e0e1f918118"
     }
 }
