@@ -1,0 +1,67 @@
+[
+    {
+        "instruction": "Who founded Constella Labs?",
+        "input": "",
+        "output": "Constella Labs were co-founded by Sky and Jialin Li in Singapore in 2022."
+    },
+    {
+        "instruction": "How many researchers and engineers are currently involved in Constella Labs?",
+        "input": "",
+        "output": "There are around 10 researchers and engineers involved in Constella Labs, including 2-3 PhDs, 3-4 undergraduates, and 1 key architect from the crypto industry."
+    },
+    {
+        "instruction": "What is the focus of Constella Labs' research?",
+        "input": "",
+        "output": "Constella Labs is focused on the research of the next generation of decentralized communication networks, which they have been working on since 2020."
+    },
+    {
+        "instruction": "How many contributors has Constella Labs had from the BTC and ETH communities in the last three years?",
+        "input": "",
+        "output": "Constella Labs has had more than 10 contributors from the BTC and ETH communities in the last three years to contribute on their ideas and solutions."
+    },
+    {
+        "instruction": "What is Constella Labs' current research topic?",
+        "input": "",
+        "output": "Constella Labs' current research topic is how to solve the consensus in a byzantine environment of a distributed network. They plan to publish the paper in May."
+    },
+    {
+        "instruction": "Does Constella Labs have a whitepaper?",
+        "input": "",
+        "output": "Constella Labs does not have a whitepaper yet. Their key goal for this year is to have the whitepaper and start to develop the test net."
+    },
+    {
+        "instruction": "What is Constella Labs' problem and solution?",
+        "input": "",
+        "output": "Constella Labs' problem is how to provide a more decentralized network for the internet economy in a very basic layer, specifically how to solve the conflicts of the consensus and connectivity between people in a very large-scale scope. Their solution is to focus on enhancing the consensus between people, not just things, in a trust minimization design system."
+    },
+    {
+        "instruction": "What is Constella Labs' goal?",
+        "input": "",
+        "output": "Constella Labs' goal is to build the next public protocol for communication networks and be the top research decentralized lab in the long run."
+    },
+    {
+        "instruction": "What is Constella Labs' economic model?",
+        "input": "",
+        "output": "Constella Labs' economic model is based on the new IP model. They want to generate a lot of IPs and contribute to public protocols, not just private ones. They may tokenize their protocol in a decentralized way and take a very DAO way to run their labs."
+    },
+    {
+        "instruction": "Has Constella Labs spent much in the last 3 years?",
+        "input": "",
+        "output": "Constella Labs has not spent much in the last 3 years. Most of their founders have contributed in a very non-incentive way."
+    },
+    {
+        "instruction": "Has Sky's fund committed to Constella Labs?",
+        "input": "",
+        "output": "Yes, Sky's fund has committed first on 1m USD @50 million valuation for Constella Labs this month. They are open to talking with friends who want to contribute to their protocol now."
+    },
+    {
+        "instruction": "What is Constella Labs' plan for their seed round funding?",
+        "input": "",
+        "output": "Constella Labs plans to finish their seed round in Q2, with 2 million USD being enough for this round. More importantly, they want to involve more thinkers or scientists for their labs."
+    },
+    {
+        "instruction": "What is Constella Labs' plan for their engineering and research team?",
+        "input": "",
+        "output": "Constella Labs plans to finish another round in Q2 or 3 and have a full-time 10-15 engineers and researchers team this year."
+    }
+]
