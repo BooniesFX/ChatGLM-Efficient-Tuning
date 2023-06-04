@@ -9,12 +9,16 @@ import mdtex2html
 import gradio as gr
 
 from utils import ModelArguments, auto_configure_device_map, load_pretrained
-from transformers import HfArgumentParser
+from transformers import HfArgumentParser, AutoModel, AutoTokenizer
+from peft import PeftModel
 
+#parser = HfArgumentParser(ModelArguments)
+#model_args, = parser.parse_args_into_dataclasses()
+#model, tokenizer = load_pretrained(model_args)
+tokenizer = AutoTokenizer.from_pretrained("model", trust_remote_code=True)
+model = AutoModel.from_pretrained("model", trust_remote_code=True, device_map='auto',offload_folder="offload", torch_dtype=torch.float16)
+#model = PeftModel.from_pretrained(model, "output").half()
 
-parser = HfArgumentParser(ModelArguments)
-model_args, = parser.parse_args_into_dataclasses()
-model, tokenizer = load_pretrained(model_args)
 if torch.cuda.device_count() > 1:
     from accelerate import dispatch_model
     device_map = auto_configure_device_map(torch.cuda.device_count())
