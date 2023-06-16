@@ -114,6 +114,7 @@
     "elon_chat_en": {
         "file_name": "elon_chat.json",
         "file_sha1": "8a14bbf5b663356301c4bf66852967a7ffac1c82"
+    },
   "alpaca_en": {
     "hf_hub_url": "tatsu-lab/alpaca"
   },
