@@ -9,8 +9,7 @@ import torch
 import signal
 import platform
 
-from utils import ModelArguments, auto_configure_device_map, load_pretrained
-from transformers import HfArgumentParser
+from utils import prepare_infer_args, auto_configure_device_map, load_pretrained
 
 
 os_name = platform.system()
@@ -35,15 +34,16 @@ def signal_handler(signal, frame):
 def main():
 
     global stop_stream
-    parser = HfArgumentParser(ModelArguments)
-    model_args, = parser.parse_args_into_dataclasses()
-    model, tokenizer = load_pretrained(model_args)
+    model_args, finetuning_args, generating_args = prepare_infer_args()
+    model, tokenizer = load_pretrained(model_args, finetuning_args)
+
     if torch.cuda.device_count() > 1:
         from accelerate import dispatch_model
         device_map = auto_configure_device_map(torch.cuda.device_count())
         model = dispatch_model(model, device_map)
     else:
         model = model.cuda()
+
     model.eval()
 
     history = []
@@ -66,7 +66,7 @@ def main():
             continue
 
         count = 0
-        for _, history in model.stream_chat(tokenizer, query, history=history):
+        for _, history in model.stream_chat(tokenizer, query, history=history, **generating_args.to_dict()):
             if stop_stream:
                 stop_stream = False
                 break

@@ -11,12 +11,13 @@ from transformers.optimization import get_scheduler
 from trl import PPOConfig
 
 from utils import (
-    prepare_args,
-    prepare_data,
-    load_pretrained,
-    preprocess_data,
     DataCollatorForChatGLM,
     PPOTrainerForChatGLM,
+    LogCallback,
+    load_pretrained,
+    prepare_args,
+    prepare_data,
+    preprocess_data,
     plot_loss
 )
 
@@ -26,7 +27,7 @@ def main():
     # prepare pretrained model and dataset
     model_args, data_args, training_args, finetuning_args = prepare_args(stage="ppo")
     dataset = prepare_data(model_args, data_args)
-    model, tokenizer = load_pretrained(model_args, training_args, finetuning_args, training_args.do_train, stage="ppo")
+    model, tokenizer = load_pretrained(model_args, finetuning_args, training_args.do_train, stage="ppo")
     dataset = preprocess_data(dataset, tokenizer, data_args, training_args, stage="ppo")
     data_collator = DataCollatorForChatGLM(tokenizer, model.pretrained_model)
 
@@ -54,6 +55,7 @@ def main():
     ppo_trainer = PPOTrainerForChatGLM(
         training_args=training_args,
         finetuning_args=finetuning_args,
+        callbacks=[LogCallback()],
         config=ppo_config,
         model=model,
         ref_model=None,
@@ -67,8 +69,8 @@ def main():
     ppo_trainer.ppo_train(max_target_length=data_args.max_target_length)
     ppo_trainer.save_model()
     ppo_trainer.save_state() # must be after save_model
-    if ppo_trainer.is_world_process_zero() and finetuning_args.plot_loss:
-        plot_loss(training_args, keys=["loss", "reward"])
+    if ppo_trainer.is_world_process_zero() and model_args.plot_loss:
+        plot_loss(training_args.output_dir, keys=["loss", "reward"])
 
 
 def _mp_fn(index):

@@ -3,22 +3,16 @@
 # Usage: python export_model.py --checkpoint_dir path_to_checkpoint --output_dir path_to_save_model
 
 
-from transformers import HfArgumentParser, TrainingArguments
-from transformers.utils.versions import require_version
-from utils import ModelArguments, load_pretrained
+from utils import load_pretrained, prepare_args
 
 
 def main():
 
-    require_version("transformers==4.27.4", "To fix: pip install transformers==4.27.4") # higher version may cause problems
-
-    parser = HfArgumentParser((ModelArguments, TrainingArguments))
-    model_args, training_args = parser.parse_args_into_dataclasses()
-
-    model, tokenizer = load_pretrained(model_args)
+    model_args, _, training_args, finetuning_args = prepare_args(stage="sft")
+    model_args.use_fast_tokenizer = False
+    model, tokenizer = load_pretrained(model_args, finetuning_args)
     model.save_pretrained(training_args.output_dir, max_shard_size="1GB")
     tokenizer.save_pretrained(training_args.output_dir)
-
     print("model and tokenizer have been saved at:", training_args.output_dir)
 
 

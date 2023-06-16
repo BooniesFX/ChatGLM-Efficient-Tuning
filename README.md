@@ -13,9 +13,13 @@ Fine-tuning ðŸ¤–[ChatGLM-6B](https://github.com/THUDM/ChatGLM-6B) model with ðŸ¤
 
 ## Changelog
 
+[23/06/05] Now we support 4-bit LoRA training (aka [QLoRA](https://github.com/artidoro/qlora)). Try `--quantization_bit 4` argument to work with 4-bit quantized model. (experimental feature)
+
+[23/06/01] We implemented a framework supporting the efficient tuning of LLaMA and BLOOM models. Please follow [LLaMA-Efficient-Tuning](https://github.com/hiyouga/LLaMA-Efficient-Tuning) if you are interested.
+
 [23/05/19] Now we support using the development set to evaluate the model while training. Try `--dev_ratio` argument to specify the size of development set.
 
-[23/04/29] Now we support training ChatGLM with **Reinforcement Learning with Human Feedback (RLHF)** ! We provide several examples to run RLHF training, please refer to the `examples` folder for details. (experimental feature)
+[23/04/29] Now we support training ChatGLM with **Reinforcement Learning with Human Feedback (RLHF)** ! We provide several examples to run RLHF training, please refer to the `examples` folder for details.
 
 [23/04/20] Our repo achieved 100 stars within 12 days! Congratulations!
 
@@ -222,6 +226,7 @@ python src/export_model.py \
 | LoRA (r=8)       |     8      | FP16 |  24GB  | 8ex/s |
 | LoRA (r=8)       |     4      | FP16 |  20GB  | 8ex/s |
 | LoRA (r=8)       |     4      | INT8 |  10GB  | 8ex/s |
+| LoRA (r=8)       |     4      | INT4 |   8GB  | 8ex/s |
 | P-Tuning (p=16)  |     4      | FP16 |  20GB  | 8ex/s |
 | P-Tuning (p=16)  |     4      | INT8 |  16GB  | 8ex/s |
 | P-Tuning (p=16)  |     4      | INT4 |  12GB  | 8ex/s |

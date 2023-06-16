@@ -5,13 +5,12 @@ import torch
 import logging
 from typing import Dict, List, Optional
 
-from transformers import Seq2SeqTrainingArguments
 from transformers.trainer import TRAINER_STATE_NAME
 from transformers.modeling_utils import PreTrainedModel
 from transformers.generation.utils import LogitsProcessorList
 from transformers.generation.logits_process import LogitsProcessor
 
-from peft.utils.other import WEIGHTS_NAME
+from peft.utils import WEIGHTS_NAME
 
 
 IGNORE_INDEX = -100
@@ -19,7 +18,10 @@ VALUE_HEAD_FILE_NAME = "value_head.bin"
 FINETUNING_ARGS_NAME = "finetuning_args.json"
 
 
-logger = logging.getLogger(__name__)
+def get_logger(name: str) -> logging.Logger:
+    return logging.getLogger(name)
+
+
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
     datefmt="%m/%d/%Y %H:%M:%S",
@@ -28,8 +30,7 @@ logging.basicConfig(
 )
 
 
-def get_logger(name: str) -> logging.Logger:
-    return logging.getLogger(name)
+logger = get_logger(__name__)
 
 
 class AverageMeter:
@@ -126,21 +127,27 @@ def get_state_dict(model: torch.nn.Module) -> Dict[str, torch.Tensor]: # get sta
     return filtered_state_dict
 
 
-def load_trainable_params(model: torch.nn.Module, checkpoint_dir: os.PathLike) -> None:
+def load_trainable_params(model: torch.nn.Module, checkpoint_dir: os.PathLike) -> bool:
     weights_file = os.path.join(checkpoint_dir, WEIGHTS_NAME)
-    assert os.path.exists(weights_file), f"Provided path ({checkpoint_dir}) does not contain the pretrained weights."
+    if not os.path.exists(weights_file):
+        logger.warning("Provided path ({}) does not contain pre-trained weights.".format(checkpoint_dir))
+        return False
     model_state_dict = torch.load(weights_file, map_location="cpu")
     model.load_state_dict(model_state_dict, strict=False) # skip missing keys
+    return True
 
 
-def load_valuehead_params(model: torch.nn.Module, checkpoint_dir: os.PathLike) -> None:
+def load_valuehead_params(model: torch.nn.Module, checkpoint_dir: os.PathLike) -> bool:
     valuehead_file = os.path.join(checkpoint_dir, VALUE_HEAD_FILE_NAME)
-    assert os.path.exists(valuehead_file), f"Provided path ({checkpoint_dir}) does not contain the valuehead weights."
+    if not os.path.exists(valuehead_file):
+        logger.warning("Provided path ({}) does not contain valuehead weights.".format(checkpoint_dir))
+        return False
     valuehead_state_dict = torch.load(valuehead_file, map_location="cpu")
     model.register_buffer("reward_head_weight", valuehead_state_dict["summary.weight"])
     model.register_buffer("reward_head_bias", valuehead_state_dict["summary.bias"])
     model.register_buffer("default_head_weight", torch.zeros_like(valuehead_state_dict["summary.weight"]))
     model.register_buffer("default_head_bias", torch.zeros_like(valuehead_state_dict["summary.bias"]))
+    return True
 
 
 def auto_configure_device_map(num_gpus: int) -> Dict[str, int]:
@@ -166,7 +173,7 @@ def auto_configure_device_map(num_gpus: int) -> Dict[str, int]:
     return device_map
 
 
-def smooth(scalars: List[float], weight: Optional[float] = 0.95) -> List[float]:
+def smooth(scalars: List[float], weight: Optional[float] = 0.9) -> List[float]:
     """
     EMA implementation according to TensorBoard.
     """
@@ -179,9 +186,10 @@ def smooth(scalars: List[float], weight: Optional[float] = 0.95) -> List[float]:
     return smoothed
 
 
-def plot_loss(training_args: Seq2SeqTrainingArguments, keys: Optional[List[str]] = ["loss"]) -> None:
+def plot_loss(save_dictionary: os.PathLike, keys: Optional[List[str]] = ["loss"]) -> None:
     import matplotlib.pyplot as plt
-    data = json.load(open(os.path.join(training_args.output_dir, TRAINER_STATE_NAME), "r"))
+    with open(os.path.join(save_dictionary, TRAINER_STATE_NAME), "r", encoding="utf-8") as f:
+        data = json.load(f)
 
     for key in keys:
         steps, metrics = [], []
@@ -197,9 +205,9 @@ def plot_loss(training_args: Seq2SeqTrainingArguments, keys: Optional[List[str]]
         plt.figure()
         plt.plot(steps, metrics, alpha=0.4, label="original")
         plt.plot(steps, smooth(metrics), label="smoothed")
-        plt.title("training {} of {}".format(key, training_args.output_dir))
+        plt.title("training {} of {}".format(key, save_dictionary))
         plt.xlabel("step")
         plt.ylabel(key)
         plt.legend()
-        plt.savefig(os.path.join(training_args.output_dir, "training_{}.png".format(key)), format="png", dpi=100)
-        print("Figure saved:", os.path.join(training_args.output_dir, "training_{}.png".format(key)))
+        plt.savefig(os.path.join(save_dictionary, "training_{}.png".format(key)), format="png", dpi=100)
+        print("Figure saved:", os.path.join(save_dictionary, "training_{}.png".format(key)))

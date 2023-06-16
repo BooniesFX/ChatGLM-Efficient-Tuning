@@ -13,9 +13,15 @@
 
 ## 更新日志
 
+[23/06/05] 现在我们实现了 4 比特的 LoRA 训练（也称 [QLoRA](https://github.com/artidoro/qlora)）。请尝试使用 `--quantization_bit 4` 参数进行 4 比特量化微调。（实验性功能）
+
+[23/06/01] 我们开源了支持 LLaMA 和 BLOOM 系列模型的高效微调框架，如果您感兴趣请关注我们的 [LLaMA-Efficient-Tuning](https://github.com/hiyouga/LLaMA-Efficient-Tuning) 项目。
+
+[23/06/01] 我们新增了一个使用监督微调和 RLHF 训练医疗问答模型的例子，请移步 [covid_doctor.md](examples/covid_doctor.md) 查阅。
+
 [23/05/19] 现在我们支持了在模型训练时使用验证集评估性能。请尝试使用 `--dev_ratio` 参数指定验证集大小。
 
-[23/04/29] 现在我们实现了 **RLHF（基于人类反馈的强化学习）** 训练！我们提供了几个运行 RLHF 的例子，具体内容请移步 `examples` 文件夹。（实验性功能）
+[23/04/29] 现在我们实现了 **RLHF（基于人类反馈的强化学习）** 训练！我们提供了几个运行 RLHF 的例子，具体内容请移步 `examples` 文件夹。
 
 [23/04/25] 我们新增了一个使用自定义数据集分布式训练的例子，请移步 [ads_generation.md](examples/ads_generation.md) 查阅。
 
@@ -227,6 +233,7 @@ python src/export_model.py \
 | LoRA (r=8)       |     8      | FP16 |  24GB  | 8ex/s |
 | LoRA (r=8)       |     4      | FP16 |  20GB  | 8ex/s |
 | LoRA (r=8)       |     4      | INT8 |  10GB  | 8ex/s |
+| LoRA (r=8)       |     4      | INT4 |   8GB  | 8ex/s |
 | P-Tuning (p=16)  |     4      | FP16 |  20GB  | 8ex/s |
 | P-Tuning (p=16)  |     4      | INT8 |  16GB  | 8ex/s |
 | P-Tuning (p=16)  |     4      | INT4 |  12GB  | 8ex/s |

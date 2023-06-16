@@ -10,7 +10,8 @@ from transformers import (
     AutoModel,
     AutoTokenizer,
     HfArgumentParser,
-    Seq2SeqTrainingArguments
+    Seq2SeqTrainingArguments,
+    BitsAndBytesConfig
 )
 from transformers.utils import check_min_version
 from transformers.utils.versions import require_version
@@ -27,12 +28,15 @@ from peft import (
     get_peft_model
 )
 
+from peft.utils import CONFIG_NAME
+
 from trl import AutoModelForCausalLMWithValueHead
 
 from .config import (
     ModelArguments,
     DataTrainingArguments,
-    FinetuningArguments
+    FinetuningArguments,
+    GeneratingArguments
 )
 
 from .other import (
@@ -41,14 +45,14 @@ from .other import (
     load_valuehead_params,
     print_trainable_params,
     prepare_model_for_training,
-    IGNORE_INDEX,
-    FINETUNING_ARGS_NAME
+    IGNORE_INDEX
 )
 
 check_min_version("4.27.4")
 require_version("datasets>=2.10.0", "To fix: pip install datasets>=2.10.0")
+require_version("accelerate>=0.19.0", "To fix: pip install accelerate>=0.19.0")
 require_version("peft>=0.3.0", "To fix: pip install peft>=0.3.0")
-require_version("trl>=0.4.1", "To fix: pip install trl>=0.4.1")
+require_version("trl>=0.4.4", "To fix: pip install trl>=0.4.4")
 
 
 logger = get_logger(__name__)
@@ -87,14 +91,18 @@ def init_adapter(
         logger.info("Fine-tuning method: P-Tuning v2") # nothing to do
 
     if finetuning_args.finetuning_type != "lora" and model_args.checkpoint_dir is not None:
-        load_trainable_params(model, model_args.checkpoint_dir[0]) # load model checkpoints for non-peft methods
+        assert len(model_args.checkpoint_dir) == 1, "Only LoRA tuning accepts multiple checkpoints."
+        assert load_trainable_params(model, model_args.checkpoint_dir[0]), "Model checkpoint is not correctly loaded."
 
     if finetuning_args.finetuning_type == "lora":
         logger.info("Fine-tuning method: LoRA")
         lastest_checkpoint = None
 
         if model_args.checkpoint_dir is not None:
-            if is_trainable and finetuning_args.resume_lora_training: # continually train on the lora weights
+            assert os.path.exists(os.path.join(model_args.checkpoint_dir[0], CONFIG_NAME)), \
+                "The given checkpoint is not a LoRA checkpoint, please specify `--finetuning_type full/p_tuning/freeze` instead."
+
+            if is_trainable and model_args.resume_lora_training: # continually train on the lora weights
                 checkpoints_to_merge, lastest_checkpoint = model_args.checkpoint_dir[:-1], model_args.checkpoint_dir[-1]
             else:
                 checkpoints_to_merge = model_args.checkpoint_dir
@@ -120,13 +128,15 @@ def init_adapter(
             )
             model = get_peft_model(model, lora_config)
 
+    if model_args.checkpoint_dir is not None:
+        logger.info("Loaded fine-tuned model from checkpoint(s): {}".format(",".join(model_args.checkpoint_dir)))
+
     return model
 
 
 def load_pretrained(
         model_args: ModelArguments,
-        training_args: Optional[Seq2SeqTrainingArguments] = None,
-        finetuning_args: Optional[FinetuningArguments] = None,
+        finetuning_args: FinetuningArguments,
         is_trainable: Optional[bool] = False,
         stage: Optional[Literal["sft", "rm", "ppo"]] = "sft"
 ) -> Tuple[PreTrainedModel, PreTrainedTokenizer]:
@@ -135,19 +145,9 @@ def load_pretrained(
 
     Support both training and inference.
     """
-
-    if (not is_trainable) and (model_args.checkpoint_dir is None):
+    if (not is_trainable) and model_args.checkpoint_dir is None:
         logger.warning("Checkpoint is not found at evaluation, load the original model.")
         finetuning_args = FinetuningArguments(finetuning_type="none")
-
-    if model_args.checkpoint_dir is not None: # load fine-tuned model from checkpoint
-        for checkpoint_dir in model_args.checkpoint_dir:
-            if not os.path.isfile(os.path.join(checkpoint_dir, FINETUNING_ARGS_NAME)):
-                raise ValueError("The fine-tuning arguments are not found in the provided dictionary.")
-        logger.info("Load fine-tuned model from checkpoint(s): {}".format(",".join(model_args.checkpoint_dir)))
-        finetuning_args = FinetuningArguments.load_from_json(os.path.join(model_args.checkpoint_dir[-1], FINETUNING_ARGS_NAME))
-        if finetuning_args.finetuning_type != "lora" and len(model_args.checkpoint_dir) > 1:
-            logger.warning("Only LoRA tuning accepts multiple checkpoints.")
 
     assert stage == "sft" or finetuning_args.finetuning_type == "lora", "RM and PPO training can only be performed with LoRA method."
 
@@ -190,16 +190,26 @@ def load_pretrained(
 
     # Quantization configurations for Full, Freeze and LoRA in training (using bitsandbytes library).
     if quantization == "bnb":
-        assert model_args.quantization_bit == 8, "Freeze and LoRA fine-tuning only accept 8-bit quantization."
-
-        require_version("bitsandbytes>=0.37.0", "bitsandbytes library is required to use this feature.")
-        from bitsandbytes.cuda_setup.main import get_compute_capability, get_cuda_lib_handle, is_cublasLt_compatible
-        cuda = get_cuda_lib_handle()
-        cc = get_compute_capability(cuda)
-        assert is_cublasLt_compatible(cc), "The current GPU(s) is incompatible with quantization."
-
-        config_kwargs["load_in_8bit"] = True
-        config_kwargs["device_map"] = "auto" # it should not be specified outside of load_in_8bit
+        if model_args.quantization_bit == 8:
+            require_version("bitsandbytes>=0.37.0", "To fix: pip install bitsandbytes>=0.37.0")
+            config_kwargs["load_in_8bit"] = True
+            config_kwargs["quantization_config"] = BitsAndBytesConfig(
+                load_in_8bit=True,
+                llm_int8_threshold=6.0
+            )
+        elif model_args.quantization_bit == 4:
+            require_version("bitsandbytes>=0.39.0", "To fix: pip install bitsandbytes>=0.39.0")
+            require_version("transformers>=4.30.1", "To fix: pip install transformers>=4.30.1")
+            require_version("accelerate>=0.20.3", "To fix: pip install accelerate>=0.20.3")
+            require_version("peft>=0.4.0.dev0", "To fix: pip install git+https://github.com/huggingface/peft.git")
+            config_kwargs["load_in_4bit"] = True
+            config_kwargs["quantization_config"] = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_compute_dtype=model_args.compute_dtype,
+                bnb_4bit_use_double_quant=model_args.double_quantization,
+                bnb_4bit_quant_type=model_args.quantization_type
+            )
+        config_kwargs["device_map"] = {"": int(os.environ.get("LOCAL_RANK") or 0)}
 
     # Load and prepare pretrained models (without valuehead).
     model = AutoModel.from_pretrained(model_args.model_name_or_path, config=config, **config_kwargs)
@@ -213,9 +223,6 @@ def load_pretrained(
     # Quantization with the built-in method for P-Tuning v2 training or evaluation.
     # Model parameters should be cast to float16 in quantized P-Tuning setting.
     if quantization == "cpm":
-        assert model_args.quantization_bit in [4, 8], "P-Tuning v2 and inference mode only accept 4-bit or 8-bit quantization."
-        assert not (is_trainable and training_args.fp16), "FP16 training conflicts with cpm quantization."
-
         if is_trainable: # convert all params into half precision except prefix_encoder in training
             for name, param in model.named_parameters():
                 if "prefix_encoder" not in name:
@@ -229,17 +236,20 @@ def load_pretrained(
     if stage == "rm" or stage == "ppo": # add value head
         model = AutoModelForCausalLMWithValueHead.from_pretrained(model)
 
+        if stage == "rm" and model_args.checkpoint_dir is not None: # load valuehead weights to evaluate reward model
+            logger.warning("Only the last checkpoint containing valuehead will be loaded as the valuehead.")
+            if load_valuehead_params(model, model_args.checkpoint_dir[-1]):
+                model.v_head.load_state_dict({
+                    "summary.weight": getattr(model, "reward_head_weight"),
+                    "summary.bias": getattr(model, "reward_head_bias")
+                })
+
         if stage == "ppo": # load reward model
             assert is_trainable, "PPO stage cannot be performed at evaluation."
             assert model_args.reward_model is not None, "Reward model is necessary for PPO training."
             logger.info("Load reward model from {}".format(model_args.reward_model))
             model.pretrained_model.load_adapter(model_args.reward_model, "reward", is_trainable=False)
-            load_valuehead_params(model, model_args.reward_model)
-
-        # Set the parameter _is_int8_training_enabled for the AutoModelForCausalLMWithValueHead model
-        # To meet the compliance requirements of the transformers library
-        if quantization == "bnb":
-            model._is_int8_training_enabled = True
+            assert load_valuehead_params(model, model_args.reward_model), "Reward model is not correctly loaded."
 
     print_trainable_params(model)
 
@@ -270,16 +280,23 @@ def prepare_args(
 
     # Check arguments (do not check finetuning_args since it may be loaded from checkpoints)
     if stage != "sft" and training_args.predict_with_generate:
-        raise ValueError("`predict_with_generate` cannot be set as True in RM and PPO stages.")
+        raise ValueError("`predict_with_generate` cannot be set as True at RM and PPO stages.")
 
     if training_args.do_train and training_args.predict_with_generate:
         raise ValueError("`predict_with_generate` cannot be set as True while training.")
 
     if training_args.do_predict and (not training_args.predict_with_generate):
-        raise ValueError("Please enable `predict_with_generate` for saving model predictions.")
+        raise ValueError("Please enable `predict_with_generate` to save model predictions.")
 
-    if model_args.quantization_bit is not None and (not training_args.do_train):
-        logger.warning("Evaluating model in 4/8-bit mode may cause lower scores.")
+    if model_args.quantization_bit is not None:
+        if finetuning_args.finetuning_type == "full":
+            raise ValueError("Quantization is incompatible with the full-parameter tuning.")
+
+        if finetuning_args.finetuning_type == "p_tuning" and training_args.fp16:
+            raise ValueError("FP16 training conflicts with quantized P-Tuning.")
+
+        if not training_args.do_train:
+            logger.warning("Evaluating model in 4/8-bit mode may cause lower scores.")
 
     if training_args.do_train and (not training_args.fp16):
         logger.warning("We recommend enable fp16 mixed precision training for ChatGLM-6B.")
@@ -289,6 +306,14 @@ def prepare_args(
         training_args.ddp_find_unused_parameters = False
 
     training_args.optim = "adamw_torch" if training_args.optim == "adamw_hf" else training_args.optim # suppress warning
+
+    if model_args.quantization_bit is not None:
+        if training_args.fp16:
+            model_args.compute_dtype = torch.float16
+        elif training_args.bf16:
+            model_args.compute_dtype = torch.bfloat16
+        else:
+            model_args.compute_dtype = torch.float32
 
     # Log on each process the small summary:
     logger.info(
@@ -301,6 +326,18 @@ def prepare_args(
     transformers.set_seed(training_args.seed)
 
     return model_args, data_args, training_args, finetuning_args
+
+
+def prepare_infer_args() -> Tuple[ModelArguments, FinetuningArguments, GeneratingArguments]:
+
+    parser = HfArgumentParser((ModelArguments, FinetuningArguments, GeneratingArguments))
+
+    if len(sys.argv) == 2 and sys.argv[1].endswith(".json"): # Provide arguments with a json file.
+        model_args, finetuning_args, generating_args = parser.parse_json_file(json_file=os.path.abspath(sys.argv[1]))
+    else:
+        model_args, finetuning_args, generating_args = parser.parse_args_into_dataclasses()
+
+    return model_args, finetuning_args, generating_args
 
 
 def prepare_data(
@@ -331,7 +368,14 @@ def prepare_data(
             )
         elif dataset_attr.load_from == "file":
             data_file = os.path.join(data_args.dataset_dir, dataset_attr.file_name) # support json, jsonl and csv
+
             extension = dataset_attr.file_name.split(".")[-1]
+            if extension == "csv":
+                file_type = "csv"
+            elif extension == "json" or extension == "jsonl":
+                file_type = "json"
+            else:
+                raise ValueError("File extension must be csv, json or jsonl.")
 
             if dataset_attr.file_sha1 is not None:
                 checksum(data_file, dataset_attr.file_sha1)
@@ -339,7 +383,7 @@ def prepare_data(
                 logger.warning("Checksum failed: missing SHA-1 hash value in dataset_info.json.")
 
             raw_datasets = load_dataset(
-                extension,
+                file_type,
                 data_files=data_file,
                 cache_dir=model_args.cache_dir,
                 use_auth_token=True if model_args.use_auth_token else None
@@ -380,7 +424,7 @@ def preprocess_data(
         tokenizer: PreTrainedTokenizer,
         data_args: DataTrainingArguments,
         training_args: Seq2SeqTrainingArguments,
-        stage: Optional[Literal["sft", "rm", "ppo"]] = "sft"
+        stage: Literal["sft", "rm", "ppo"]
 ) -> Dataset:
 
     column_names = list(dataset.column_names)
@@ -404,7 +448,7 @@ def preprocess_data(
                 yield prompt, answer
 
     def preprocess_supervised_dataset(examples):
-        # build inputs with format `X [gMASK] [BOS] Y [EOS]` and labels with format `[IGNORE] ... [IGNORE] [BOS] Y [EOS]`
+        # build inputs with format `X [gMASK] [BOS] Y [EOS]` and labels with format `[IGNORE] ... [IGNORE] Y [EOS]`
         model_inputs = {"input_ids": [], "labels": []}
         for prompt, answer in format_example(examples):
             source_ids = tokenizer.encode(text=prompt, add_special_tokens=False)
@@ -417,7 +461,7 @@ def preprocess_data(
 
             input_ids = tokenizer.build_inputs_with_special_tokens(source_ids, target_ids)
 
-            context_length = input_ids.index(tokenizer.bos_token_id)
+            context_length = input_ids.index(tokenizer.bos_token_id) + 1
             labels = [IGNORE_INDEX] * context_length + input_ids[context_length:]
 
             model_inputs["input_ids"].append(input_ids)
@@ -482,10 +526,8 @@ def preprocess_data(
         print("inputs:\n{}".format(tokenizer.decode(example["input_ids"])))
 
     if stage == "sft":
-        if (not training_args.do_train) and training_args.predict_with_generate: # with generation
-            preprocess_function = preprocess_evaluation_dataset
-        else: # without generation
-            preprocess_function = preprocess_supervised_dataset
+        preprocess_function = preprocess_evaluation_dataset \
+            if training_args.predict_with_generate else preprocess_supervised_dataset
     elif stage == "rm":
         preprocess_function = preprocess_pairwise_dataset
     elif stage == "ppo":
@@ -501,11 +543,11 @@ def preprocess_data(
             desc="Running tokenizer on dataset"
         )
 
-    if stage == "sft":
-        print_sft_dataset_example(dataset[0])
-    elif stage == "rm":
-        print_pairwise_dataset_example(dataset[0])
-    elif stage == "ppo":
-        print_ppo_dataset_example(dataset[0])
+        if stage == "sft":
+            print_sft_dataset_example(dataset[0])
+        elif stage == "rm":
+            print_pairwise_dataset_example(dataset[0])
+        elif stage == "ppo":
+            print_ppo_dataset_example(dataset[0])
 
-    return dataset
+        return dataset

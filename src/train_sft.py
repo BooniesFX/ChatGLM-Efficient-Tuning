@@ -4,13 +4,14 @@
 
 
 from utils import (
+    DataCollatorForChatGLM,
+    Seq2SeqTrainerForChatGLM,
+    ComputeMetrics,
+    LogCallback,
     load_pretrained,
     prepare_args,
     prepare_data,
     preprocess_data,
-    DataCollatorForChatGLM,
-    Seq2SeqTrainerForChatGLM,
-    ComputeMetrics,
     get_logits_processor,
     plot_loss
 )
@@ -21,15 +22,15 @@ def main():
     # Prepare pretrained model and dataset
     model_args, data_args, training_args, finetuning_args = prepare_args(stage="sft")
     dataset = prepare_data(model_args, data_args)
-    model, tokenizer = load_pretrained(model_args, training_args, finetuning_args, training_args.do_train, stage="sft")
+    model, tokenizer = load_pretrained(model_args, finetuning_args, training_args.do_train, stage="sft")
     dataset = preprocess_data(dataset, tokenizer, data_args, training_args, stage="sft")
     data_collator = DataCollatorForChatGLM(tokenizer, model, data_args.ignore_pad_token_for_loss)
 
     # Override the decoding parameters of Seq2SeqTrainer
     training_args.generation_max_length = training_args.generation_max_length if \
                 training_args.generation_max_length is not None else data_args.max_target_length
-    training_args.generation_num_beams = data_args.num_beams if \
-                data_args.num_beams is not None else training_args.generation_num_beams
+    training_args.generation_num_beams = data_args.eval_num_beams if \
+                data_args.eval_num_beams is not None else training_args.generation_num_beams
 
     # Split the dataset
     if training_args.do_train:
@@ -48,6 +49,7 @@ def main():
         args=training_args,
         tokenizer=tokenizer,
         data_collator=data_collator,
+        callbacks=[LogCallback()],
         compute_metrics=ComputeMetrics(tokenizer) if training_args.predict_with_generate else None,
         **trainer_kwargs
     )
@@ -56,7 +58,7 @@ def main():
     gen_kwargs = {
         "do_sample": True,
         "top_p": 0.7,
-        "max_length": data_args.max_source_length + data_args.max_target_length + 1,
+        "max_new_tokens": data_args.max_target_length + 1,
         "temperature": 0.95,
         "logits_processor": get_logits_processor()
     }
@@ -68,8 +70,8 @@ def main():
         trainer.save_metrics("train", train_result.metrics)
         trainer.save_state()
         trainer.save_model()
-        if trainer.is_world_process_zero() and finetuning_args.plot_loss:
-            plot_loss(training_args, keys=["loss", "eval_loss"])
+        if trainer.is_world_process_zero() and model_args.plot_loss:
+            plot_loss(training_args.output_dir, keys=["loss", "eval_loss"])
 
     # Evaluation
     if training_args.do_eval:

@@ -11,7 +11,7 @@ from trl import PPOTrainer, AutoModelForCausalLMWithValueHead
 from trl.core import LengthSampler
 from trl.trainer.ppo_trainer import PPODecorators, logprobs_from_logits
 
-from .peft_trainer import PeftTrainer
+from .peft_trainer import PeftTrainer, LogCallback
 
 from .config import FinetuningArguments
 
@@ -63,12 +63,19 @@ class PPOTrainerForChatGLM(PPOTrainer, PeftTrainer):
     Inherits PPOTrainer.
     """
 
-    def __init__(self, training_args: Seq2SeqTrainingArguments, finetuning_args: FinetuningArguments, **kwargs):
+    def __init__(
+            self,
+            training_args: Seq2SeqTrainingArguments,
+            finetuning_args: FinetuningArguments,
+            callbacks: List[LogCallback],
+            **kwargs
+    ):
         PPOTrainer.__init__(self, **kwargs)
         self.args = training_args
         self.finetuning_args = finetuning_args
+        self.log_callback = callbacks[0]
         self.state = TrainerState()
-        self.data_collator = self.accelerator.prepare(kwargs["data_collator"])
+        self.data_collator = self.accelerator.prepare(kwargs["data_collator"]) # override the data collator of PPOTrainer
 
     def ppo_train(self, max_target_length: int) -> None:
         r"""
@@ -141,7 +148,7 @@ class PPOTrainerForChatGLM(PPOTrainer, PeftTrainer):
                 # Compute rewards
                 replace_model(unwrapped_model, target="reward")
                 _, _, values = self.model(**self.prepare_model_inputs(queries, responses))
-                rewards = [reward for reward in values[-1]]
+                rewards = [reward for reward in values[-1].to(torch.float32)] # use float32 type
                 replace_model(unwrapped_model, target="default") # make sure the model is default at the end
 
                 # Run PPO step
@@ -150,8 +157,8 @@ class PPOTrainerForChatGLM(PPOTrainer, PeftTrainer):
 
                 stats = self.step(queries, responses, rewards)
 
-                loss_meter.update(stats["ppo/loss/total"])
-                reward_meter.update(torch.tensor(rewards).sum().item(), n=len(rewards))
+                loss_meter.update(stats["ppo/loss/total"], n=len(rewards))
+                reward_meter.update(torch.stack(rewards).mean().item(), n=len(rewards))
 
                 if steps_trained == len_dataloader:
                     dataiter = iter(self.dataloader)
@@ -167,6 +174,7 @@ class PPOTrainerForChatGLM(PPOTrainer, PeftTrainer):
                 print(logs)
                 logs["step"] = step
                 self.state.log_history.append(logs)
+                self.log_callback.on_log(self.args, self.state, None)
                 loss_meter.reset()
                 reward_meter.reset()
 
@@ -177,8 +185,8 @@ class PPOTrainerForChatGLM(PPOTrainer, PeftTrainer):
     def generate(
             self,
             inputs: Dict[str, torch.Tensor],
-            length_sampler: Callable = None,
-            return_prompt: bool = True,
+            length_sampler: Optional[Callable] = None,
+            return_prompt: Optional[bool] = True,
             **generation_kwargs,
     ) -> torch.Tensor:
         r"""
@@ -206,13 +214,6 @@ class PPOTrainerForChatGLM(PPOTrainer, PeftTrainer):
             return response[:, inputs["input_ids"].size(1):]
         return response
 
-    def prepare_model_inputs(self, queries: List[torch.Tensor], responses: List[torch.Tensor]) -> Dict[str, torch.Tensor]:
-        input_ids = [torch.cat([q, r]) for q, r in zip(queries, responses)]
-        input_data = self.data_collator([{"input_ids": ids} for ids in input_ids])
-        input_data = {k: v.to(self.current_device) for k, v in input_data.items() if v is not None}
-        input_data.pop("labels", None)  # we don't want to compute LM losses
-        return input_data
-
     @PPODecorators.empty_cuda_cache()
     def batched_forward_pass(
         self,
@@ -220,6 +221,7 @@ class PPOTrainerForChatGLM(PPOTrainer, PeftTrainer):
         queries: torch.Tensor,
         responses: torch.Tensor,
         model_inputs: dict,
+        return_logits: bool = False
     ):
         r"""
         Calculates model outputs in multiple batches.

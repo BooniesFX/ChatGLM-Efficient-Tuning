@@ -1,6 +1,7 @@
 import os
 import json
-from typing import List, Literal, Optional
+import torch
+from typing import Any, Dict, List, Literal, Optional
 from dataclasses import asdict, dataclass, field
 
 
@@ -15,6 +16,12 @@ class DatasetAttr:
     dataset_name: Optional[str] = None
     file_name: Optional[str] = None
     file_sha1: Optional[str] = None
+
+    def __repr__(self) -> str:
+        if self.dataset_name is not None:
+            return self.dataset_name
+        else:
+            return self.file_name
 
     def __post_init__(self):
         self.prompt_column = "instruction"
@@ -60,6 +67,18 @@ class ModelArguments:
         default=None,
         metadata={"help": "The number of bits to quantize the model."}
     )
+    quantization_type: Optional[Literal["fp4", "nf4"]] = field(
+        default="nf4",
+        metadata={"help": "Quantization data type to use in int4 training."}
+    )
+    double_quantization: Optional[bool] = field(
+        default=True,
+        metadata={"help": "Whether to use double quantization in int4 training or not."}
+    )
+    compute_dtype: Optional[torch.dtype] = field(
+        default=None,
+        metadata={"help": "Used in quantization configs. Do not specify this argument manually."}
+    )
     checkpoint_dir: Optional[str] = field(
         default=None,
         metadata={"help": "Path to the directory containing the model checkpoints as well as the configurations."}
@@ -68,10 +87,21 @@ class ModelArguments:
         default=None,
         metadata={"help": "Path to the directory containing the checkpoints of the reward model."}
     )
+    resume_lora_training: Optional[bool] = field(
+        default=True,
+        metadata={"help": "Whether to resume training from the last LoRA weights or create new weights after merging them."}
+    )
+    plot_loss: Optional[bool] = field(
+        default=False,
+        metadata={"help": "Whether to plot the training loss after fine-tuning or not."}
+    )
 
     def __post_init__(self):
         if self.checkpoint_dir is not None: # support merging lora weights
             self.checkpoint_dir = [cd.strip() for cd in self.checkpoint_dir.split(",")]
+
+        if self.quantization_bit is not None:
+            assert self.quantization_bit in [4, 8], "We only accept 4-bit or 8-bit quantization."
 
 
 @dataclass
@@ -111,7 +141,7 @@ class DataTrainingArguments:
         default=None,
         metadata={"help": "For debugging purposes, truncate the number of examples for each dataset."}
     )
-    num_beams: Optional[int] = field(
+    eval_num_beams: Optional[int] = field(
         default=None,
         metadata={"help": "Number of beams to use for evaluation. This argument will be passed to `model.generate`"}
     )
@@ -130,7 +160,8 @@ class DataTrainingArguments:
 
     def __post_init__(self): # support mixing multiple datasets
         dataset_names = [ds.strip() for ds in self.dataset.split(",")]
-        dataset_info = json.load(open(os.path.join(self.dataset_dir, "dataset_info.json"), "r"))
+        with open(os.path.join(self.dataset_dir, "dataset_info.json"), "r") as f:
+            dataset_info = json.load(f)
 
         self.dataset_list: List[DatasetAttr] = []
         for name in dataset_names:
@@ -145,7 +176,7 @@ class DataTrainingArguments:
                 dataset_attr = DatasetAttr(
                     "file",
                     file_name=dataset_info[name]["file_name"],
-                    file_sha1=dataset_info[name]["file_sha1"] if "file_sha1" in dataset_info[name] else None
+                    file_sha1=dataset_info[name].get("file_sha1", None)
                 )
 
             if "columns" in dataset_info[name]:
@@ -198,21 +229,13 @@ class FinetuningArguments:
         default="query_key_value",
         metadata={"help": "Name(s) of target modules to apply LoRA. Use comma to separate multiple modules."}
     )
-    resume_lora_training: Optional[bool] = field(
-        default=True,
-        metadata={"help": "Whether to resume training from the last LoRA weights or create new weights after merging them."}
-    )
-    plot_loss: Optional[bool] = field(
-        default=False,
-        metadata={"help": "Whether to plot the training loss after fine-tuning or not."}
-    )
 
     def __post_init__(self):
         if isinstance(self.lora_target, str):
             self.lora_target = [target.strip() for target in self.lora_target.split(",")] # support custom target modules of LoRA
 
         if self.num_layer_trainable > 0: # fine-tuning the last n layers if num_layer_trainable > 0
-            trainable_layer_ids = [27-k for k in range(self.num_layer_trainable)]
+            trainable_layer_ids = [27 - k for k in range(self.num_layer_trainable)]
         else: # fine-tuning the first n layers if num_layer_trainable < 0
             trainable_layer_ids = [k for k in range(-self.num_layer_trainable)]
 
@@ -224,14 +247,52 @@ class FinetuningArguments:
         assert self.finetuning_type in ["none", "freeze", "p_tuning", "lora", "full"], "Invalid fine-tuning method."
 
     def save_to_json(self, json_path: str):
-        """Save the content of this instance in JSON format inside `json_path`."""
+        """Saves the content of this instance in JSON format inside `json_path`."""
         json_string = json.dumps(asdict(self), indent=2, sort_keys=True) + "\n"
         with open(json_path, "w", encoding="utf-8") as f:
             f.write(json_string)
 
     @classmethod
     def load_from_json(cls, json_path: str):
-        """Create an instance from the content of `json_path`."""
+        """Creates an instance from the content of `json_path`."""
         with open(json_path, "r", encoding="utf-8") as f:
             text = f.read()
         return cls(**json.loads(text))
+
+
+@dataclass
+class GeneratingArguments:
+    """
+    Arguments pertaining to specify the decoding parameters.
+    """
+    do_sample: Optional[bool] = field(
+        default=True,
+        metadata={"help": "Whether or not to use sampling, use greedy decoding otherwise."}
+    )
+    temperature: Optional[float] = field(
+        default=0.95,
+        metadata={"help": "The value used to modulate the next token probabilities."}
+    )
+    top_p: Optional[float] = field(
+        default=0.7,
+        metadata={"help": "The smallest set of most probable tokens with probabilities that add up to top_p or higher are kept."}
+    )
+    top_k: Optional[int] = field(
+        default=50,
+        metadata={"help": "The number of highest probability vocabulary tokens to keep for top-k filtering."}
+    )
+    num_beams: Optional[int] = field(
+        default=1,
+        metadata={"help": "Number of beams for beam search. 1 means no beam search."}
+    )
+    max_length: Optional[int] = field(
+        default=2048,
+        metadata={"help": "The maximum numbers of tokens to generate, ignoring the number of tokens in the prompt."}
+    )
+    repetition_penalty: Optional[float] = field(
+        default=1.0,
+        metadata={"help": "The parameter for repetition penalty. 1.0 means no penalty."}
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)

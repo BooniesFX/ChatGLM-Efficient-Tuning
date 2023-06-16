@@ -6,12 +6,14 @@
 
 
 from utils import (
-    prepare_args,
-    prepare_data,
-    load_pretrained,
-    preprocess_data,
     PairwiseDataCollatorForChatGLM,
     PairwiseTrainerForChatGLM,
+    LogCallback,
+    load_pretrained,
+    prepare_args,
+    prepare_data,
+    preprocess_data,
+    compute_accuracy,
     plot_loss
 )
 
@@ -20,7 +22,7 @@ def main():
     # prepare pretrained model and dataset
     model_args, data_args, training_args, finetuning_args = prepare_args(stage="rm")
     dataset = prepare_data(model_args, data_args)
-    model, tokenizer = load_pretrained(model_args, training_args, finetuning_args, training_args.do_train, stage="rm")
+    model, tokenizer = load_pretrained(model_args, finetuning_args, training_args.do_train, stage="rm")
     dataset = preprocess_data(dataset, tokenizer, data_args, training_args, stage="rm")
     data_collator = PairwiseDataCollatorForChatGLM(tokenizer, model.pretrained_model)
 
@@ -43,6 +45,8 @@ def main():
         args=training_args,
         tokenizer=tokenizer,
         data_collator=data_collator,
+        callbacks=[LogCallback()],
+        compute_metrics=compute_accuracy,
         **trainer_kwargs
     )
 
@@ -53,8 +57,8 @@ def main():
         trainer.save_metrics("train", train_result.metrics)
         trainer.save_state()
         trainer.save_model()
-        if trainer.is_world_process_zero() and finetuning_args.plot_loss:
-            plot_loss(training_args, keys=["loss", "eval_loss"])
+        if trainer.is_world_process_zero() and model_args.plot_loss:
+            plot_loss(training_args.output_dir, keys=["loss", "eval_loss"])
 
     # Evaluation
     if training_args.do_eval:
