@@ -5,23 +5,15 @@ from typing import Any, Dict, List, Literal, Optional
 from dataclasses import asdict, dataclass, field
 
 
-CHATGLM_REPO_NAME = "THUDM/chatglm-6b"
-CHATGLM_VERSION = "a8ede826cf1b62bd3c78bdfb3625c7c5d2048fbd"
-
-
 @dataclass
 class DatasetAttr:
 
     load_from: str
     dataset_name: Optional[str] = None
-    file_name: Optional[str] = None
-    file_sha1: Optional[str] = None
+    dataset_sha1: Optional[str] = None
 
     def __repr__(self) -> str:
-        if self.dataset_name is not None:
-            return self.dataset_name
-        else:
-            return self.file_name
+        return self.dataset_name
 
     def __post_init__(self):
         self.prompt_column = "instruction"
@@ -36,8 +28,12 @@ class ModelArguments:
     Arguments pertaining to which model/config/tokenizer we are going to fine-tune.
     """
     model_name_or_path: Optional[str] = field(
-        default=CHATGLM_REPO_NAME,
+        default="THUDM/chatglm-6b",
         metadata={"help": "Path to pretrained model or model identifier from huggingface.co/models."}
+    )
+    use_v2: Optional[bool] = field(
+        default=False,
+        metadata={"help": "Whether to use ChatGLM2 or not."}
     )
     config_name: Optional[str] = field(
         default=None,
@@ -56,7 +52,7 @@ class ModelArguments:
         metadata={"help": "Whether to use one of the fast tokenizer (backed by the tokenizers library) or not."}
     )
     model_revision: Optional[str] = field(
-        default=CHATGLM_VERSION,
+        default="main",
         metadata={"help": "The specific model version to use (can be a branch name, tag name or commit id)."}
     )
     use_auth_token: Optional[bool] = field(
@@ -175,8 +171,8 @@ class DataTrainingArguments:
             else:
                 dataset_attr = DatasetAttr(
                     "file",
-                    file_name=dataset_info[name]["file_name"],
-                    file_sha1=dataset_info[name].get("file_sha1", None)
+                    dataset_name=dataset_info[name]["file_name"],
+                    dataset_sha1=dataset_info[name].get("file_sha1", None)
                 )
 
             if "columns" in dataset_info[name]:
@@ -287,6 +283,10 @@ class GeneratingArguments:
     )
     max_length: Optional[int] = field(
         default=2048,
+        metadata={"help": "The maximum length the generated tokens can have. It can be overridden by max_new_tokens."}
+    )
+    max_new_tokens: Optional[int] = field(
+        default=None,
         metadata={"help": "The maximum numbers of tokens to generate, ignoring the number of tokens in the prompt."}
     )
     repetition_penalty: Optional[float] = field(
